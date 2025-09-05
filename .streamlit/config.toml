@@ -1,2 +1,11 @@
+#[server]
+#maxUploadSize = 1024
 [server]
 maxUploadSize = 1024
+
+[theme]
+base = "light"
+primaryColor = "#6C4CE0"           # roxo elegante
+backgroundColor = "#FFFFFF"        # fundo branco
+secondaryBackgroundColor = "#F6F7FB"
+textColor = "#111111"
