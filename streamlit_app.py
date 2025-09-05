@@ -1,4 +1,4 @@
-# streamlit_app.py
+# streamlit_app.py (tema claro + etapas no painel fixo)
 import streamlit as st
 import subprocess, json, tempfile, time
 from pathlib import Path
@@ -11,36 +11,36 @@ st.set_page_config(
 )
 
 # =========================
-# Estilos (frame + steps)
+# Estilos (tema claro)
 # =========================
 st.markdown("""
 <style>
 .block-container {max-width: 1200px; padding-top: 1.0rem;}
 .frame {
-  border: 1px solid rgba(120,120,120,.35);
+  border: 1px solid #e6e8ee;
   border-radius: 16px;
   padding: 18px 20px;
-  box-shadow: 0 10px 25px rgba(0,0,0,.10);
-  background: rgba(255,255,255,.02);
+  box-shadow: 0 10px 25px rgba(0,0,0,.06);
+  background: #ffffff;
 }
 .side-card {
-  border: 1px solid rgba(120,120,120,.25);
+  border: 1px solid #e6e8ee;
   border-radius: 12px;
-  padding: 14px 14px 10px;
-  background: rgba(255,255,255,.03);
+  padding: 14px;
+  background: #ffffff;
 }
 .steps {list-style:none; margin: 0; padding: 0;}
-.steps li {margin: 6px 0; display:flex; gap:8px; align-items:center;}
+.steps li {margin: 6px 0; display:flex; gap:8px; align-items:center; color:#202124;}
 .badge {
   display:inline-flex; align-items:center; justify-content:center;
   width:22px; height:22px; border-radius:50%;
   font-size:.85rem; font-weight:700; color:#fff;
 }
-.badge.wait {background:#666;}
-.badge.run  {background:#915eff;}
+.badge.wait {background:#9aa0a6;}
+.badge.run  {background:#6C4CE0;}
 .badge.done {background:#2aa84a;}
 .center-dl {display:flex; justify-content:center; margin: 14px 0 6px;}
-.footer {text-align:center; margin-top:18px; opacity:.7;}
+.footer {text-align:center; margin-top:18px; opacity:.7; color:#444;}
 footer {visibility:hidden;}
 </style>
 """, unsafe_allow_html=True)
@@ -98,7 +98,6 @@ def build_vf(v: dict, max_h: int) -> str:
             filters.append("zscale=t=linear:npl=100,tonemap=hable:desat=0,"
                            "zscale=matrix=bt709:transfer=bt709:primaries=bt709")
         else:
-            # Fallback sem zscale: mapeia cores para BT.709 (boa compatibilidade)
             filters.append("colorspace=all=bt709:fast=1")
     if max_h and max_h > 0:
         filters.append(f"scale=-2:min(ih\\,{max_h}):flags=bicubic")
@@ -157,8 +156,6 @@ msg_box = st.empty()
 dl_box  = st.empty()
 
 def render_steps(current: int, converting_text: str = ""):
-    """current: 0..5 (quantas etapas já concluídas)."""
-    html = "<ul class='steps'>"
     labels = [
         "Upload e salvamento",
         "Leitura de metadados",
@@ -166,6 +163,7 @@ def render_steps(current: int, converting_text: str = ""):
         "Convertendo vídeo",
         "Finalizando",
     ]
+    html = "<ul class='steps'>"
     for i, label in enumerate(labels, start=1):
         cls = "done" if i <= current else ("run" if i == current + 1 else "wait")
         txt = label
@@ -213,25 +211,20 @@ if convert_btn and file is not None:
         ]
         if cfr and int(cfr) > 0:
             cmd += ["-r", str(int(cfr)), "-vsync", "cfr"]
-        cmd += ["-movflags", "+faststart",
-                "-progress", "pipe:1", "-nostats",  # habilita progresso parsável
-                str(tmp_out)]
+        cmd += ["-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(tmp_out)]
         plan_text = "Reencode com H.264 + AAC."
     msg_box.info(plan_text)
     render_steps(3)
 
     # 4) Converter com barra de progresso
     progress = prog_box.progress(0, text="Iniciando conversão…")
-    out_lines = []
     percent = 0
     try:
-        # Quando passamos -progress pipe:1, o FFmpeg imprime linhas key=value no STDOUT
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
         while True:
             line = proc.stdout.readline()
             if not line:
                 break
-            out_lines.append(line)
             if "out_time_ms=" in line and duration_s > 0:
                 try:
                     out_ms = int(line.strip().split("=")[1])
@@ -245,7 +238,6 @@ if convert_btn and file is not None:
                 progress.progress(percent, text="Finalizando…")
                 render_steps(3, converting_text="100%")
         ret = proc.wait()
-        # guardar stderr (apenas se precisar ver na aba de detalhes)
         err = proc.stderr.read() if proc.stderr else ""
         if err:
             detail_box.code((err or "")[-3000:])
@@ -265,8 +257,6 @@ if convert_btn and file is not None:
             st.markdown("<div class='center-dl'>", unsafe_allow_html=True)
             dl_box.download_button("⬇️ Baixar convertido", data=data, file_name=out_name, mime="video/mp4")
             st.markdown("</div>", unsafe_allow_html=True)
-        if st.session_state.get("preview_on", None) is None:
-            st.session_state["preview_on"] = show_preview
         if show_preview:
             st.video(data)
 
