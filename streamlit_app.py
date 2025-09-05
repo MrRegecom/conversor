@@ -1,11 +1,14 @@
-
+# streamlit_app.py
 import streamlit as st
 import subprocess, json, tempfile
 from pathlib import Path
+from typing import Optional
 
 st.set_page_config(page_title="Conversor de Vídeo (Android/Windows)", page_icon="🎬", layout="centered")
 
-# --- helpers ---
+# -----------------------
+# Helpers de sistema/ffmpeg
+# -----------------------
 def run(cmd):
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
@@ -18,7 +21,20 @@ def ffprobe_json(path: Path):
     except Exception:
         return {}
 
-def is_android_friendly(v: dict, a: dict | None):
+def has_filter(name: str) -> bool:
+    try:
+        p = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return (p.returncode == 0) and (name in p.stdout)
+    except Exception:
+        return False
+
+HAS_ZSCALE = has_filter("zscale")
+
+# -----------------------
+# Lógica de decisão
+# -----------------------
+def is_android_friendly(v: dict, a: Optional[dict]):
     ok_codec = (v.get("codec_name") == "h264")
     ok_pix   = (v.get("pix_fmt") == "yuv420p")
     ok_prof  = (v.get("profile") in ("Constrained Baseline","Baseline","Main","High"))
@@ -38,21 +54,40 @@ def needs_tonemap(v: dict) -> bool:
 
 def build_vf(v: dict, max_h: int) -> str:
     filters = []
+
+    # HDR/10-bit → tenta tonemap; se não tiver zscale, faz fallback
     if needs_tonemap(v):
-        filters.append("zscale=t=linear:npl=100,tonemap=hable:desat=0,zscale=matrix=bt709:transfer=bt709:primaries=bt709")
+        if HAS_ZSCALE:
+            # Tonemap correto (libzimg/zscale)
+            filters.append("zscale=t=linear:npl=100,tonemap=hable:desat=0,"
+                           "zscale=matrix=bt709:transfer=bt709:primaries=bt709")
+        else:
+            # Fallback sem zscale: converte espaço de cor pra bt709 (resolve bem p/ marketing/social)
+            filters.append("colorspace=all=bt709:fast=1")
+
+    # Redimensiona mantendo proporção
     if max_h and max_h > 0:
+        # precisa escapar a vírgula na expressão
         filters.append(f"scale=-2:min(ih\\,{max_h}):flags=bicubic")
+
+    # Garantir compatibilidade Android/Windows
     filters.append("format=yuv420p")
     return ",".join(filters)
 
-# --- UI ---
+# -----------------------
+# UI
+# -----------------------
 st.title("🎬 Conversor de Vídeo (Android/Windows compatível)")
-st.write("Converte para **H.264 + AAC**, `yuv420p`, com **faststart**. Detecta **HDR/10-bit** e aplica *tonemap* para SDR quando necessário.")
-
+st.write(
+    "Converte para **H.264 + AAC**, `yuv420p`, com **faststart**. "
+    "Detecta **HDR/10-bit** e aplica *tonemap* para SDR quando possível."
+)
 with st.sidebar:
     st.header("Opções")
-    max_height = st.selectbox("Limitar altura", [0, 720, 1080, 1440, 2160], index=2, format_func=lambda x: "Manter" if x==0 else f"{x}p")
-    cfr = st.selectbox("Travar FPS (CFR)", [0, 24, 30, 60], index=0, format_func=lambda x: "Não travar" if x==0 else f"{x} fps")
+    max_height = st.selectbox("Limitar altura", [0, 720, 1080, 1440, 2160],
+                              index=2, format_func=lambda x: "Manter" if x==0 else f"{x}p")
+    cfr = st.selectbox("Travar FPS (CFR)", [0, 24, 30, 60],
+                       index=0, format_func=lambda x: "Não travar" if x==0 else f"{x} fps")
     crf = st.slider("Qualidade (CRF)", 18, 26, 20)
     preset = st.selectbox("Preset", ["fast", "medium", "slow"], index=1)
 
@@ -60,15 +95,20 @@ file = st.file_uploader("Escolha um vídeo", type=["mp4","mov","m4v","mkv","avi"
 
 if file is not None:
     st.write(f"**Arquivo:** {file.name} — {file.size/1024/1024:.1f} MB")
+    if HAS_ZSCALE:
+        st.caption("Filtro **zscale** disponível ✅ (tonemap HDR→SDR completo).")
+    else:
+        st.caption("Filtro **zscale** indisponível ⚠️ usando fallback `colorspace` (boa compatibilidade).")
 
     if st.button("Converter"):
         with st.status("Convertendo… aguarde", expanded=True) as status:
-            # salva upload
+            # Salva upload para /tmp
             tmp_in = Path(tempfile.gettempdir()) / f"in_{next(tempfile._get_candidate_names())}{Path(file.name).suffix or '.mp4'}"
             with open(tmp_in, "wb") as f:
                 f.write(file.getbuffer())
             st.write("Arquivo salvo:", tmp_in)
 
+            # Inspeciona
             info = ffprobe_json(tmp_in)
             v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
             a = next((s for s in info.get("streams", []) if s.get("codec_type") == "audio"), None)
@@ -76,10 +116,10 @@ if file is not None:
             out_name = f"{Path(file.name).stem}_android.mp4"
             tmp_out = Path(tempfile.gettempdir()) / f"out_{next(tempfile._get_candidate_names())}.mp4"
 
-            # Decisão: copiar ou reencodar
+            # Copiar ou reencodar?
             if is_android_friendly(v, a) and max_height == 0 and cfr == 0:
                 cmd = ["ffmpeg", "-y", "-i", str(tmp_in), "-c", "copy", "-movflags", "+faststart", str(tmp_out)]
-                st.write("Compatível detectado → copiando sem reencode…")
+                st.write("Compatível detectado → **cópia sem reencode**.")
             else:
                 vf = build_vf(v, max_height)
                 cmd = [
@@ -97,6 +137,7 @@ if file is not None:
             p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if p.returncode != 0:
                 st.error("Falha na conversão.")
+                # mostra só o final do log para não poluir
                 st.code(p.stderr[-4000:])
                 status.update(label="Erro", state="error")
             else:
