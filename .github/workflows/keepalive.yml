@@ -1,0 +1,29 @@
+name: Keep Streamlit Awake
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"  # a cada 6 horas
+  workflow_dispatch: {}     # permite rodar manualmente
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    env:
+      APP_URL: https://SEU-APP.streamlit.app   # << troque pelo link do seu app
+    steps:
+      - name: Checkout (dummy)
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Wake app
+        run: |
+          python wake.py
