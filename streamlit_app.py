@@ -1,4 +1,4 @@
-# streamlit_app.py — tema claro/escuro + paleta + etapas fixas + botão verde quando pronto
+# streamlit_app.py — etapas fixas + botão verde quando pronto + aparência no rodapé
 import streamlit as st
 import subprocess, json, tempfile
 from pathlib import Path
@@ -9,6 +9,12 @@ st.set_page_config(
     page_icon="🎬",
     layout="wide",
 )
+
+# ---------------- Session defaults (tema no rodapé) ----------------
+if "ui_theme" not in st.session_state:
+    st.session_state["ui_theme"] = "🌙 Escuro"
+if "ui_palette" not in st.session_state:
+    st.session_state["ui_palette"] = "Roxo"
 
 # ============== Helpers FFmpeg ==============
 def run(cmd):
@@ -64,21 +70,21 @@ def build_vf(v: dict, max_h: int) -> str:
     filters.append("format=yuv420p")
     return ",".join(filters)
 
-# ============== Aparência (Tema + Paleta) ==============
-with st.sidebar:
-    st.markdown("### Aparência")
-    theme = st.radio("Tema", options=["🌙 Escuro", "☀️ Claro"], index=0, horizontal=True)
-    palette = st.selectbox("Cor primária", ["Roxo", "Azul", "Verde", "Laranja"], index=0)
+# ============== Aparência (usa valores da sessão) ==============
+theme = st.session_state["ui_theme"]
+palette = st.session_state["ui_palette"]
 
 primary_map = {"Roxo": "#915eff", "Azul": "#2b8cff", "Verde": "#23c06b", "Laranja": "#ff7a45"}
-PRIMARY = primary_map[palette]
+PRIMARY = primary_map.get(palette, "#915eff")
 
 if "🌙" in theme:  # DARK
-    BG, PANEL, BORDER, TEXT, MUTED = "#0f1117", "#1a1f2e", "rgba(255,255,255,.12)", "#f5f7ff", "#a9b1c3"
-    BADGE_WAIT, BADGE_DONE = "#545b70", "#2aa84a"
+    BG, PANEL, BORDER, TEXT, MUTED = "#0b0f1a", "#121826", "#20293a", "#e5e7eb", "#9aa0a6"
+    BADGE_WAIT, BADGE_DONE = "#3b4252", "#23c06b"
+    INPUT_BG = "#0b0f1a"
 else:             # LIGHT
-    BG, PANEL, BORDER, TEXT, MUTED = "#ffffff", "#f6f7fb", "#e6e8ee", "#1f2330", "#4d5566"
-    BADGE_WAIT, BADGE_DONE = "#9aa0a6", "#2aa84a"
+    BG, PANEL, BORDER, TEXT, MUTED = "#f7f8fc", "#ffffff", "#e6e8ee", "#1f2937", "#6b7280"
+    BADGE_WAIT, BADGE_DONE = "#9aa0a6", "#23c06b"
+    INPUT_BG = "#ffffff"
 
 # CSS global
 st.markdown(f"""
@@ -92,12 +98,12 @@ st.markdown(f"""
   --primary: {PRIMARY};
 }}
 html, body, .block-container {{ background: var(--bg) !important; color: var(--text); }}
-.block-container {{max-width: 1200px; padding-top: .6rem;}}
+.block-container {{max-width: 1100px; padding-top: .6rem;}}
 .frame {{
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 18px 20px;
-  box-shadow: 0 10px 22px rgba(0,0,0,.12);
+  box-shadow: 0 10px 22px rgba(0,0,0,.10);
   background: var(--panel);
 }}
 .header {{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }}
@@ -122,16 +128,26 @@ html, body, .block-container {{ background: var(--bg) !important; color: var(--t
 .badge.done {{ background:{BADGE_DONE}; }}
 
 .center-dl {{ display:flex; justify-content:center; margin: 14px 0 6px; }}
-.footer {{ text-align:center; margin-top:18px; opacity:.75; color: var(--muted); }}
+.footer {{ display:flex; gap:10px; align-items:center; justify-content:space-between;
+           margin-top:18px; padding-top:10px; border-top:1px dashed var(--border); color: var(--muted); }}
 footer {{ visibility:hidden; }}
 
-/* Inputs mais contrastados */
+/* Inputs com contraste */
 [data-baseweb="select"]>div, .stTextInput>div>div, .stNumberInput>div>div, .stFileUploader>div {{
-  background: {"#0f1117" if "🌙" in theme else "#ffffff"} !important;
+  background: {INPUT_BG} !important;
   border: 1px solid var(--border) !important; border-radius: 10px !important;
 }}
-/* Botões base */
-.stButton>button {{ border-radius: 10px !important; border: 0 !important; box-shadow: 0 6px 16px rgba(0,0,0,.12); }}
+/* Botão Converter: verde quando habilitado, cinza quando desabilitado */
+#convert-btn button {{
+  border-radius: 10px !important; border: 0 !important; box-shadow: 0 6px 16px rgba(0,0,0,.12);
+}}
+#convert-btn.ready button {{
+  background: #22c55e !important; color: white !important;
+}}
+#convert-btn.notready button {{
+  background: #9aa0a6 !important; color: white !important; cursor:not-allowed;
+}}
+#convert-btn.ready button:hover {{ filter: brightness(0.95); }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -169,20 +185,9 @@ with left:
 
     # ===== Botão Converter (verde quando upload pronto) =====
     ready = (file is not None) and getattr(file, "size", 0) > 0
-    btn_css = f"""
-    <style>
-    #convert-btn button {{
-      background: {'#22c55e' if ready else '#9aa0a6'} !important; color: white !important;
-    }}
-    #convert-btn button:hover {{
-      {'filter: brightness(0.95);' if ready else 'filter:none; cursor:not-allowed;'}
-    }}
-    </style>
-    """
-    st.markdown(btn_css, unsafe_allow_html=True)
-    st.markdown('<div id="convert-btn">', unsafe_allow_html=True)
+    st.markdown(f"<div id='convert-btn' class='{'ready' if ready else 'notready'}'>", unsafe_allow_html=True)
     convert_btn = st.button("Converter", use_container_width=True, disabled=not ready)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with right:
     st.markdown("#### Etapas da conversão")
@@ -310,6 +315,26 @@ if convert_btn and file is not None:
         if show_preview:
             st.video(data)
 
-# Rodapé
-st.markdown("<div class='footer'>prepared by <b>Reginaldo Sousa</b></div>", unsafe_allow_html=True)
+# ---------------- Rodapé (aparência compacta) ----------------
+col_l, col_r = st.columns([0.55, 0.45])
+with col_l:
+    st.markdown("<div class='footer'>prepared by <b>Reginaldo Sousa</b></div>", unsafe_allow_html=True)
+with col_r:
+    # barra de aparência minimalista (não abre lateral)
+    st.write("")  # espaçamento
+    c1, c2 = st.columns([0.55, 0.45])
+    with c1:
+        new_theme = st.radio("Tema", ["🌙 Escuro", "☀️ Claro"],
+                             index=(0 if "🌙" in theme else 1),
+                             horizontal=True, label_visibility="collapsed")
+    with c2:
+        new_palette = st.selectbox("Cor", ["Roxo", "Azul", "Verde", "Laranja"],
+                                   index=["Roxo","Azul","Verde","Laranja"].index(palette),
+                                   label_visibility="collapsed")
+    changed = (new_theme != theme) or (new_palette != palette)
+    if changed:
+        st.session_state["ui_theme"] = new_theme
+        st.session_state["ui_palette"] = new_palette
+        st.rerun()
+
 st.markdown("</div>", unsafe_allow_html=True)  # fecha .frame
