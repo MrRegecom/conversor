@@ -1,4 +1,4 @@
-# streamlit_app.py — etapas fixas + botão verde quando pronto + aparência no rodapé
+# streamlit_app.py — dark theme fixo + etapas + botão verde quando pronto + footer à direita
 import streamlit as st
 import subprocess, json, tempfile
 from pathlib import Path
@@ -9,12 +9,6 @@ st.set_page_config(
     page_icon="🎬",
     layout="wide",
 )
-
-# ---------------- Session defaults (tema no rodapé) ----------------
-if "ui_theme" not in st.session_state:
-    st.session_state["ui_theme"] = "🌙 Escuro"
-if "ui_palette" not in st.session_state:
-    st.session_state["ui_palette"] = "Roxo"
 
 # ============== Helpers FFmpeg ==============
 def run(cmd):
@@ -70,40 +64,25 @@ def build_vf(v: dict, max_h: int) -> str:
     filters.append("format=yuv420p")
     return ",".join(filters)
 
-# ============== Aparência (usa valores da sessão) ==============
-theme = st.session_state["ui_theme"]
-palette = st.session_state["ui_palette"]
+# ============== Aparência (dark theme fixo) ==============
+PRIMARY = "#915eff"
+BG, PANEL, BORDER, TEXT, MUTED = "#0f1117", "#1a1f2e", "rgba(255,255,255,.12)", "#f5f7ff", "#a9b1c3"
+BADGE_WAIT, BADGE_DONE, INPUT_BG = "#545b70", "#2aa84a", "#0f1117"
 
-primary_map = {"Roxo": "#915eff", "Azul": "#2b8cff", "Verde": "#23c06b", "Laranja": "#ff7a45"}
-PRIMARY = primary_map.get(palette, "#915eff")
-
-if "🌙" in theme:  # DARK
-    BG, PANEL, BORDER, TEXT, MUTED = "#0b0f1a", "#121826", "#20293a", "#e5e7eb", "#9aa0a6"
-    BADGE_WAIT, BADGE_DONE = "#3b4252", "#23c06b"
-    INPUT_BG = "#0b0f1a"
-else:             # LIGHT
-    BG, PANEL, BORDER, TEXT, MUTED = "#f7f8fc", "#ffffff", "#e6e8ee", "#1f2937", "#6b7280"
-    BADGE_WAIT, BADGE_DONE = "#9aa0a6", "#23c06b"
-    INPUT_BG = "#ffffff"
-
-# CSS global
 st.markdown(f"""
 <style>
 :root {{
-  --bg: {BG};
-  --panel: {PANEL};
-  --border: {BORDER};
-  --text: {TEXT};
-  --muted: {MUTED};
-  --primary: {PRIMARY};
+  --bg: {BG}; --panel: {PANEL}; --border: {BORDER};
+  --text: {TEXT}; --muted: {MUTED}; --primary: {PRIMARY};
 }}
 html, body, .block-container {{ background: var(--bg) !important; color: var(--text); }}
 .block-container {{max-width: 1100px; padding-top: .6rem;}}
+
 .frame {{
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 18px 20px;
-  box-shadow: 0 10px 22px rgba(0,0,0,.10);
+  box-shadow: 0 10px 22px rgba(0,0,0,.12);
   background: var(--panel);
 }}
 .header {{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }}
@@ -128,8 +107,15 @@ html, body, .block-container {{ background: var(--bg) !important; color: var(--t
 .badge.done {{ background:{BADGE_DONE}; }}
 
 .center-dl {{ display:flex; justify-content:center; margin: 14px 0 6px; }}
-.footer {{ display:flex; gap:10px; align-items:center; justify-content:space-between;
-           margin-top:18px; padding-top:10px; border-top:1px dashed var(--border); color: var(--muted); }}
+
+.footer-right {{
+  display:flex; justify-content:flex-end; margin-top:14px;
+}}
+.footer-card {{
+  text-align:right; color: var(--muted);
+  line-height: 1.15; font-size:.95rem;
+}}
+
 footer {{ visibility:hidden; }}
 
 /* Inputs com contraste */
@@ -137,16 +123,13 @@ footer {{ visibility:hidden; }}
   background: {INPUT_BG} !important;
   border: 1px solid var(--border) !important; border-radius: 10px !important;
 }}
+
 /* Botão Converter: verde quando habilitado, cinza quando desabilitado */
 #convert-btn button {{
   border-radius: 10px !important; border: 0 !important; box-shadow: 0 6px 16px rgba(0,0,0,.12);
 }}
-#convert-btn.ready button {{
-  background: #22c55e !important; color: white !important;
-}}
-#convert-btn.notready button {{
-  background: #9aa0a6 !important; color: white !important; cursor:not-allowed;
-}}
+#convert-btn.ready button {{ background: #22c55e !important; color: white !important; }}
+#convert-btn.notready button {{ background: #9aa0a6 !important; color: white !important; cursor:not-allowed; }}
 #convert-btn.ready button:hover {{ filter: brightness(0.95); }}
 </style>
 """, unsafe_allow_html=True)
@@ -261,12 +244,13 @@ if convert_btn and file is not None:
             "ffmpeg", "-y", "-i", str(tmp_in),
             "-vf", vf,
             "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.1",
-            "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p",
+            "-preset", "medium", "-crf", str(crf), "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "160k", "-ac", "2",
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(tmp_out)
         ]
         if cfr and int(cfr) > 0:
-            cmd[ -3:-3 ] = ["-r", str(int(cfr)), "-vsync", "cfr"]  # insere antes do -movflags
+            # insere antes do -movflags
+            cmd[-3:-3] = ["-r", str(int(cfr)), "-vsync", "cfr"]
         plan_text, show_progress = "Reencode com H.264 + AAC.", True
 
     msg_box.info(plan_text)
@@ -312,29 +296,17 @@ if convert_btn and file is not None:
             st.markdown("<div class='center-dl'>", unsafe_allow_html=True)
             dl_box.download_button("⬇️ Baixar convertido", data=data, file_name=out_name, mime="video/mp4")
             st.markdown("</div>", unsafe_allow_html=True)
-        if show_preview:
+        if st.toggle("Pré-visualizar aqui", value=False):
             st.video(data)
 
-# ---------------- Rodapé (aparência compacta) ----------------
-col_l, col_r = st.columns([0.55, 0.45])
-with col_l:
-    st.markdown("<div class='footer'>prepared by <b>Reginaldo Sousa</b></div>", unsafe_allow_html=True)
-with col_r:
-    # barra de aparência minimalista (não abre lateral)
-    st.write("")  # espaçamento
-    c1, c2 = st.columns([0.55, 0.45])
-    with c1:
-        new_theme = st.radio("Tema", ["🌙 Escuro", "☀️ Claro"],
-                             index=(0 if "🌙" in theme else 1),
-                             horizontal=True, label_visibility="collapsed")
-    with c2:
-        new_palette = st.selectbox("Cor", ["Roxo", "Azul", "Verde", "Laranja"],
-                                   index=["Roxo","Azul","Verde","Laranja"].index(palette),
-                                   label_visibility="collapsed")
-    changed = (new_theme != theme) or (new_palette != palette)
-    if changed:
-        st.session_state["ui_theme"] = new_theme
-        st.session_state["ui_palette"] = new_palette
-        st.rerun()
+# ===== Footer (alinhado à direita) =====
+st.markdown("""
+<div class='footer-right'>
+  <div class='footer-card'>
+    <div>Prepared By</div>
+    <div><b>Reginaldo Sousa</b></div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)  # fecha .frame
