@@ -1,0 +1,18 @@
+name: Heartbeat Commit
+on:
+  schedule:
+    - cron: "0 */10 * * *"   # a cada 10 horas
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  poke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Empty commit
+        run: |
+          git config user.name "heartbeat-bot"
+          git config user.email "heartbeat@users.noreply.github.com"
+          git commit --allow-empty -m "chore: heartbeat [skip ci]"
+          git push
