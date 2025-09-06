@@ -1,6 +1,6 @@
-# streamlit_app.py — frame + steps + progresso + botão verde quando pronto + footer fixo
+# streamlit_app.py
 import streamlit as st
-import subprocess, json, tempfile
+import subprocess, json, tempfile, time
 from pathlib import Path
 from typing import Optional
 
@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 # =========================
-# Estilos (frame + steps + botão + footer)
+# Estilos (frame + steps)
 # =========================
 st.markdown("""
 <style>
@@ -40,21 +40,8 @@ st.markdown("""
 .badge.run  {background:#915eff;}
 .badge.done {background:#2aa84a;}
 .center-dl {display:flex; justify-content:center; margin: 14px 0 6px;}
+.footer {text-align:center; margin-top:18px; opacity:.7;}
 footer {visibility:hidden;}
-
-/* Botão Converter: verde quando habilitado, cinza quando desabilitado */
-#convert-btn button {
-  border-radius: 10px !important; border: 0 !important; box-shadow: 0 6px 16px rgba(0,0,0,.12);
-}
-#convert-btn.ready button    { background: #22c55e !important; color: #fff !important; }
-#convert-btn.notready button { background: #9aa0a6 !important; color: #fff !important; cursor: not-allowed; }
-#convert-btn.ready button:hover { filter: brightness(0.95); }
-
-/* Footer fixo no canto inferior direito */
-.fixed-footer {
-  position: fixed; right: 18px; bottom: 14px; z-index: 9999;
-  text-align:right; color: rgba(230,230,230,.75); line-height: 1.15; font-size:.95rem;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -147,11 +134,7 @@ with left:
     show_preview = st.toggle("Mostrar preview do convertido", value=False)
     st.caption("Tonemap: " + ("**zscale disponível ✅**" if HAS_ZSCALE else "**usando fallback `colorspace` ⚠️**"))
 
-    # Botão Converter — cinza até ter upload, verde quando pronto
-    ready = (file is not None) and getattr(file, "size", 0) > 0
-    st.markdown(f"<div id='convert-btn' class='{'ready' if ready else 'notready'}'>", unsafe_allow_html=True)
-    convert_btn = st.button("Converter", use_container_width=True, disabled=not ready)
-    st.markdown("</div>", unsafe_allow_html=True)
+    convert_btn = st.button("Converter", use_container_width=True)
 
 with right:
     st.markdown("#### Etapas da conversão")
@@ -242,6 +225,7 @@ if convert_btn and file is not None:
     out_lines = []
     percent = 0
     try:
+        # Quando passamos -progress pipe:1, o FFmpeg imprime linhas key=value no STDOUT
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
         while True:
             line = proc.stdout.readline()
@@ -261,9 +245,30 @@ if convert_btn and file is not None:
                 progress.progress(percent, text="Finalizando…")
                 render_steps(3, converting_text="100%")
         ret = proc.wait()
+        # guardar stderr (apenas se precisar ver na aba de detalhes)
         err = proc.stderr.read() if proc.stderr else ""
         if err:
             detail_box.code((err or "")[-3000:])
     except Exception as e:
         ret = -1
-        d
+        detail_box.code(f"[app] erro ao executar: {e}")
+
+    # 5) Finalizar
+    render_steps(4)
+    if ret != 0:
+        msg_box.error("Falha na conversão. Veja detalhes técnicos (opcional).")
+    else:
+        msg_box.success("Pronto! Conversão concluída. ✅")
+        with open(tmp_out, "rb") as f:
+            data = f.read()
+        with st.container():
+            st.markdown("<div class='center-dl'>", unsafe_allow_html=True)
+            dl_box.download_button("⬇️ Baixar convertido", data=data, file_name=out_name, mime="video/mp4")
+            st.markdown("</div>", unsafe_allow_html=True)
+        if st.session_state.get("preview_on", None) is None:
+            st.session_state["preview_on"] = show_preview
+        if show_preview:
+            st.video(data)
+
+st.markdown("<div class='footer'>prepared by <b>Reginaldo Sousa</b></div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)  # fecha .frame
